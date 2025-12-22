@@ -11,7 +11,12 @@ def get_mnist_data(args):
         torchvision.transforms.ToTensor(),
         torchvision.transforms.Normalize((0.5,), (0.5,)) 
     ])
-    dataset = torchvision.datasets.MNIST(root=args.dataset_path, train=True, download=True, transform=transforms)
+    dataset = torchvision.datasets.MNIST(
+        root=args.dataset_path,
+        train=True,
+        download=True,
+        transform=transforms
+    )
     return dataset
 
 
@@ -34,5 +39,10 @@ def get_data(args=config):
     else:
         raise ValueError(f"Unknown dataset: {args.dataset_name}")
     
-    dataloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True, drop_last=True)
+    dataloader = DataLoader(
+        dataset,
+        batch_size=args.batch_size,
+        shuffle=True,
+        drop_last=True
+    )
     return dataloader

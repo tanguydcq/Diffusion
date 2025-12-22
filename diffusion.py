@@ -36,9 +36,9 @@ class Diffusion:
         with torch.no_grad():
             x = torch.randn((n, self.img_channels, self.img_size, self.img_size)).to(self.device)
             frames = []
-            for i in tqdm(reversed(range(1, self.noise_steps)), position=0):
+            for i in tqdm(reversed(range(0, self.noise_steps)), position=0):
                 # We generate z ~ N(0, I) if i > 1 else z = 0
-                z = torch.randn_like(x) if i > 1 else torch.zeros_like(x)
+                z = torch.randn_like(x) if i > 0 else torch.zeros_like(x)
 
                 # create time batch for all images
                 t = (torch.ones(n) * i).long().to(self.device)
@@ -46,9 +46,9 @@ class Diffusion:
                 predicted_noise = model(x, t)
 
                 # Reconstruction formula
-                alpha = self.alpha[t]
-                alpha_hat = self.alpha_hat[t]
-                beta = self.beta[t]
+                alpha = self.alpha[t][:, None, None, None]
+                alpha_hat = self.alpha_hat[t][:, None, None, None]
+                beta = self.beta[t][:, None, None, None]
                 coef1 = 1 / torch.sqrt(alpha)
                 coef2 = beta / torch.sqrt(1 - alpha_hat)
                 sigma = torch.sqrt(beta)
