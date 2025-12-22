@@ -84,10 +84,52 @@ config3_mnist = {
     "beta_end": 0.01,  # Slower noise accumulation
 }
 
+
+# Config 1: Standard DDPM (Baseline)
+# T=1000 is standard for good quality. Beta schedule 1e-4 to 0.02 is classic.
+config1_cryptopunks = {
+    "dataset_name": "CRYPTOPUNKS",
+    "epochs": 100,
+    "lr": 3e-4,
+    "T": 1000,
+    "batch_size": 64,
+    "beta_start": 1e-4,
+    "beta_end": 0.02,
+}
+
+# Config 2: Fast Prototyping (Faster training/sampling)
+# T=300 is much faster but might be slightly noisier/less detailed.
+# Useful for quick debugging.
+config2_cryptopunks = {
+    "dataset_name": "CRYPTOPUNKS",
+    "epochs": 100,
+    "lr": 3e-4,
+    "T": 300,
+    "batch_size": 64,
+    "beta_start": 1e-4,
+    "beta_end": 0.02,
+}
+
+# Config 3: High Precision / Smooth Schedule
+# Lower beta_end (0.01) creates a "smoother" noise schedule,
+# sometimes resulting in higher quality but might need more steps to converge perfectly.
+config3_cryptopunks = {
+    "dataset_name": "CRYPTOPUNKS",
+    "epochs": 100,
+    "lr": 2e-4,  # Lower LR for more stable convergence
+    "T": 1000,
+    "batch_size": 64,
+    "beta_start": 1e-4,
+    "beta_end": 0.01,  # Slower noise accumulation
+}
+
 CONFIGS = {
     "config1": config1_mnist,
     "config2": config2_mnist,
     "config3": config3_mnist,
+    "config1_cryptopunks": config1_cryptopunks,
+    "config2_cryptopunks": config2_cryptopunks,
+    "config3_cryptopunks": config3_cryptopunks,
 }
 
 
