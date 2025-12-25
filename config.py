@@ -1,4 +1,10 @@
 import torch
+import os
+
+# Force l'utilisation de CUDA même si l'architecture n'est pas officiellement supportée
+# Pour RTX 5070 (sm_120 / Blackwell)
+os.environ['TORCH_CUDA_ARCH_LIST'] = '5.0;6.0;6.1;7.0;7.5;8.0;8.6;9.0'
+os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
 
 
 class Config:
@@ -13,6 +19,7 @@ class Config:
         beta_end=0.02,
     ):
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        print(f"Using device: {self.device}")
         self.dataset_name = dataset_name
 
         if dataset_name == "MNIST":
