@@ -17,15 +17,30 @@ class Config:
         batch_size=128,
         beta_start=1e-4,
         beta_end=0.02,
+        num_classes=10,
+        num_types=None,
+        num_accessories=None,
+        cfg_dropout=0.1,
+        cfg_scale=3.0,
     ):
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         print(f"Using device: {self.device}")
         self.dataset_name = dataset_name
+        self.num_classes = num_classes
+        self.num_types = num_types
+        self.num_accessories = num_accessories
+        
+        # Classifier-Free Guidance parameters
+        self.cfg_dropout = cfg_dropout  # Probability of dropping conditioning during training
+        self.cfg_scale = cfg_scale      # Guidance scale at inference (1.0 = no guidance)
 
         if dataset_name == "MNIST":
             self.img_size = 16
             self.image_channels = 1
         elif dataset_name == "CRYPTOPUNKS":
+            self.img_size = 32
+            self.image_channels = 3
+        elif dataset_name == "CRYPTOPUNKS_CLASSES":
             self.img_size = 32
             self.image_channels = 3
 
@@ -44,15 +59,32 @@ class Config:
         # Model specific
         if dataset_name == "MNIST":
             self.time_emb_dim = 32
-            self.start_channels = 64
-        elif dataset_name == "CRYPTOPUNKS":
+            self.start_channels = 128
+        elif dataset_name in ("CRYPTOPUNKS", "CRYPTOPUNKS_CLASSES"):
             self.time_emb_dim = 64
             self.start_channels = 128
 
 
-# Config 1: Standard DDPM (Baseline)
+# Config 1: Standard DDPM (Baseline) - AVEC conditionnement par classes + CFG
 # T=1000 is standard for good quality. Beta schedule 1e-4 to 0.02 is classic.
-config1_mnist = {
+# num_classes=10 pour MNIST (chiffres 0-9)
+# CFG: cfg_dropout=0.1 (10% unconditional training), cfg_scale=3.0 (inference guidance)
+config1_mnist_classes = {
+    "dataset_name": "MNIST",
+    "epochs": 100,
+    "lr": 6e-4,
+    "T": 1000,
+    "batch_size": 128,
+    "beta_start": 1e-4,
+    "beta_end": 0.02,
+    "num_classes": 10,
+    "cfg_dropout": 0.1,  # 10% unconditional training for CFG
+    "cfg_scale": 3.0,    # Guidance scale at inference (1.0 = no guidance, 3.0-7.0 typical)
+}
+
+# Config 1 (No Classes): SANS conditionnement par classes
+# Génération non-conditionnelle classique
+config1_no_classes = {
     "dataset_name": "MNIST",
     "epochs": 100,
     "lr": 3e-4,
@@ -60,6 +92,7 @@ config1_mnist = {
     "batch_size": 128,
     "beta_start": 1e-4,
     "beta_end": 0.02,
+    "num_classes": None,
 }
 
 # Config 2: Fast Prototyping (Faster training/sampling)
@@ -73,6 +106,7 @@ config2_mnist = {
     "batch_size": 128,
     "beta_start": 1e-4,
     "beta_end": 0.02,
+    "num_classes": None,
 }
 
 # Config 3: High Precision / Smooth Schedule
@@ -89,6 +123,7 @@ config3_mnist = {
     "batch_size": 128,
     "beta_start": 1e-4,
     "beta_end": 0.01,  # Slower noise accumulation
+    "num_classes": None,
 }
 
 
@@ -130,13 +165,51 @@ config3_cryptopunks = {
     "beta_end": 0.01,  # Slower noise accumulation
 }
 
+# ============================================================
+# CryptoPunks with Multi-Attribute Conditioning (Type + Accessories)
+# ============================================================
+# Conditional generation based on:
+# - Type: Male, Female, Zombie, Ape, Alien (5 categories)
+# - Accessories: ~87 different accessories (multi-hot encoding)
+
+config_cryptopunks_classes = {
+    "dataset_name": "CRYPTOPUNKS_CLASSES",
+    "epochs": 200,
+    "lr": 3e-4,
+    "T": 1000,
+    "batch_size": 32,  # Smaller batch for more memory (conditional model is bigger)
+    "beta_start": 1e-4,
+    "beta_end": 0.02,
+    "num_types": 5,  # Male, Female, Zombie, Ape, Alien
+    "num_accessories": 87,  # All possible accessories
+    "cfg_dropout": 0.1,  # 10% unconditional training for CFG
+    "cfg_scale": 3.0,    # Guidance scale at inference
+}
+
+config_cryptopunks_classes_fast = {
+    "dataset_name": "CRYPTOPUNKS_CLASSES",
+    "epochs": 100,
+    "lr": 3e-4,
+    "T": 500,  # Faster sampling for prototyping
+    "batch_size": 32,
+    "beta_start": 1e-4,
+    "beta_end": 0.02,
+    "num_types": 5,
+    "num_accessories": 87,
+    "cfg_dropout": 0.1,  # 10% unconditional training for CFG
+    "cfg_scale": 3.0,    # Guidance scale at inference
+}
+
 CONFIGS = {
-    "config1": config1_mnist,
-    "config2": config2_mnist,
-    "config3": config3_mnist,
-    "config1_cryptopunks": config1_cryptopunks,
-    "config2_cryptopunks": config2_cryptopunks,
-    "config3_cryptopunks": config3_cryptopunks,
+    "mnist_classes": config1_mnist_classes,
+    "mnist": config1_no_classes,
+    "mnist2": config2_mnist,
+    "mnist3": config3_mnist,
+    "cryptopunks1": config1_cryptopunks,
+    "cryptopunks2": config2_cryptopunks,
+    "cryptopunks3": config3_cryptopunks,
+    "cryptopunks_classes": config_cryptopunks_classes,
+    "cryptopunks_classes_fast": config_cryptopunks_classes_fast,
 }
 
 
@@ -146,6 +219,3 @@ def get_config_by_name(name):
             f"Config {name} not found. Available configs: {list(CONFIGS.keys())}"
         )
     return Config(**CONFIGS[name])
-
-
-config = Config(**config1_mnist)
