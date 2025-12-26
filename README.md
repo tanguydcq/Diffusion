@@ -81,6 +81,32 @@ Les résultats sont sauvegardés dans `results/DATASET/CONFIG_NAME/` :
 - `sampling.gif` : Visualisation du processus de débruitage
 - `sampling.jpg` : Images générées finales
 
+### Interface Web (Streamlit)
+
+Une interface Streamlit permet de lancer rapidement des entraînements, visualiser les checkpoints, et générer des images (y compris le générateur CryptoPunk intégré).
+
+Pour lancer le dashboard (Windows PowerShell) :
+
+```powershell
+# Activer l'environnement virtuel
+.venv\Scripts\Activate.ps1
+
+# Lancer Streamlit
+streamlit run streamlit_dashboard.py
+```
+
+Ou depuis l'invite de commandes (cmd.exe) :
+
+```bat
+:: Activer l'environnement virtuel
+.venv\Scripts\activate.bat
+
+:: Lancer Streamlit
+streamlit run streamlit_dashboard.py
+```
+
+Après démarrage Streamlit, l'application est disponible localement (par défaut) sur http://localhost:8501. Utilise l'onglet "Training" pour démarrer un entraînement et "Inference" pour générer des images.
+
 ### Télécharger CryptoPunks
 
 ```bash

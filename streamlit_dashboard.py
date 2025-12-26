@@ -307,6 +307,108 @@ def generate_cryptopunk(model, diffusion, device, type_idx, accessory_indices, c
         
         return img
 
+def generate_simple_images(config_name, num_samples=4, cfg_scale=3.0):
+    """Generate images for simple conditional or unconditional models"""
+    try:
+        from config import get_config_by_name
+        
+        # Load config
+        args = get_config_by_name(config_name)
+        device = args.device
+        
+        # Load model
+        model = get_model(args).to(device)
+        
+        # Load checkpoint
+        run_name = os.path.join(args.dataset_name, config_name)
+        models_dir = os.path.join("models", run_name)
+        ckpt_path = None
+        latest_epoch = -1
+        
+        if os.path.exists(models_dir):
+            for f in os.listdir(models_dir):
+                if f.startswith('ckpt_') and f.endswith('.pt') and f != 'ckpt_final.pt':
+                    try:
+                        epoch_num = int(f.split('_')[1].split('.')[0])
+                        if epoch_num > latest_epoch:
+                            latest_epoch = epoch_num
+                            ckpt_path = os.path.join(models_dir, f)
+                    except ValueError:
+                        continue
+            
+            final_path = os.path.join(models_dir, "ckpt_final.pt")
+            if os.path.exists(final_path):
+                try:
+                    final_ckpt = torch.load(final_path, map_location='cpu')
+                    final_epoch = final_ckpt.get('epoch', -1) if isinstance(final_ckpt, dict) else -1
+                    if final_epoch >= latest_epoch:
+                        latest_epoch = final_epoch
+                        ckpt_path = final_path
+                except:
+                    pass
+        
+        if not ckpt_path or not os.path.exists(ckpt_path):
+            return None, "No checkpoint found"
+        
+        checkpoint = torch.load(ckpt_path, map_location=device)
+        if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
+            model.load_state_dict(checkpoint['model_state_dict'])
+        else:
+            model.load_state_dict(checkpoint)
+        
+        model.eval()
+        
+        # Setup diffusion
+        diffusion = Diffusion(
+            img_size=args.img_size,
+            img_channels=args.image_channels,
+            device=device,
+            noise_steps=args.T,
+            beta_start=args.beta_start,
+            beta_end=args.beta_end
+        )
+        
+        # Generate images
+        use_cfg = cfg_scale > 1.0 and (
+            (hasattr(model, 'num_classes') and model.num_classes is not None) or
+            (hasattr(model, 'attr_embedding') and model.attr_embedding is not None)
+        )
+        
+        # Prepare conditioning if needed
+        labels = None
+        if hasattr(model, 'num_classes') and model.num_classes is not None:
+            # Class conditioning (MNIST) - cycle through classes
+            labels = torch.tensor([i % model.num_classes for i in range(num_samples)]).to(device)
+        
+        # Sample images
+        if use_cfg:
+            sampled_images = diffusion.sample_cfg(
+                model, n=num_samples, guidance_scale=cfg_scale, 
+                save_gif=False, labels=labels
+            )
+        else:
+            sampled_images = diffusion.sample(
+                model, n=num_samples, save_gif=False, labels=labels
+            )
+        
+        # Convert to PIL images
+        images = []
+        for i in range(num_samples):
+            img_tensor = sampled_images[i]
+            img_array = (img_tensor * 255).type(torch.uint8).permute(1, 2, 0).cpu().numpy()
+            
+            # Handle grayscale
+            if img_array.shape[2] == 1:
+                img_array = img_array.squeeze(-1)
+            
+            img = Image.fromarray(img_array)
+            images.append(img)
+        
+        return images, f"Epoch {latest_epoch}"
+    
+    except Exception as e:
+        return None, str(e)
+
 # ============================================================================
 # PAGE: DASHBOARD
 # ============================================================================
@@ -610,7 +712,7 @@ elif page == "⚙️ Configurations":
                     if hasattr(config, 'cfg_dropout') and config.cfg_dropout:
                         st.markdown("**Classifier-Free Guidance (CFG):**")
                         st.write(f"- CFG Dropout: `{config.cfg_dropout}` ({int(config.cfg_dropout*100)}% uncond)")
-                        st.write(f"- CFG Scale: `{config.cfg_scale}` (inference)"))
+                        st.write(f"- CFG Scale: `{config.cfg_scale}` (inference)")
     
     st.markdown("---")
     
@@ -763,11 +865,11 @@ elif page == "🎨 Inference":
             if generate_clicked:
                 with st.spinner("Génération en cours..."):
                     try:
-                        # Generate the punk
-                        img = generate_cryptopunk(model, diffusion, device, type_idx, accessory_indices)
+                        # Generate the punk with CFG
+                        img = generate_cryptopunk(model, diffusion, device, type_idx, accessory_indices, cfg_scale=cfg_scale)
                         
                         # Display the image (enlarged)
-                        st.image(img, caption=f"{selected_type} punk", use_container_width=True)
+                        st.image(img, caption=f"{selected_type} punk (CFG={cfg_scale:.1f})", use_container_width=True)
                         
                         # Display selected attributes
                         with st.expander("📋 Détails des attributs"):
@@ -811,44 +913,75 @@ elif page == "🎨 Inference":
         # ====================================================================
         st.subheader("🎲 Génération Simple")
         
-        col1, col2 = st.columns([1, 1])
+        col1, col2 = st.columns([1, 2])
         
         with col1:
-            num_samples = st.slider("Nombre d'images:", 1, 16, 4)
+            st.markdown("### ⚙️ Paramètres")
             
-            if st.button("🎨 Générer", use_container_width=True, type="primary"):
-                with st.spinner("Génération en cours..."):
-                    try:
-                        # Execute inference
-                        result = subprocess.run(
-                            [".venv\\Scripts\\python.exe", "infer.py", "--config", config_name],
-                            capture_output=True,
-                            text=True,
-                            cwd=os.getcwd()
-                        )
-                        
-                        if result.returncode == 0:
-                            st.success(f"✅ Génération terminée!")
-                            st.info(f"📁 Résultats dans: results/{dataset}/{config_name}")
-                        else:
-                            st.error(f"❌ Erreur lors de la génération")
-                            if result.stderr:
-                                st.code(result.stderr)
-                    except Exception as e:
-                        st.error(f"❌ Erreur: {e}")
+            num_samples = st.slider("Nombre d'images:", 1, 16, 4, key="num_samples_slider")
+            
+            # CFG scale (if model supports conditioning)
+            cfg_scale = st.slider(
+                "🎯 CFG Scale",
+                min_value=1.0,
+                max_value=10.0,
+                value=3.0,
+                step=0.5,
+                help="Classifier-Free Guidance. 1.0 = pas de guidance, 3.0-7.0 = typique"
+            )
+            st.caption(f"💡 CFG={cfg_scale:.1f}: {'Créatif' if cfg_scale < 2 else 'Equilibré' if cfg_scale < 5 else 'Très fidèle'}")
+            
+            generate_button = st.button("🎨 Générer", use_container_width=True, type="primary")
         
         with col2:
-            st.markdown("**Résultats:**")
-            results_path = f"results/{dataset}/{config_name}"
-            st.write(f"📁 `{results_path}`")
+            st.markdown("### 🖼️ Résultats")
             
-            if st.button("📁 Ouvrir Dossier", use_container_width=True):
-                results_dir = Path(results_path)
-                if results_dir.exists():
-                    os.startfile(str(results_dir))
-                    st.success("📂 Dossier ouvert!")
-                else:
-                    st.error("Dossier introuvable")
+            if generate_button:
+                with st.spinner(f"Génération de {num_samples} image(s) en cours..."):
+                    try:
+                        images, epoch_info = generate_simple_images(config_name, num_samples, cfg_scale)
+                        
+                        if images is None:
+                            st.error(f"❌ Erreur lors de la génération: {epoch_info}")
+                        else:
+                            st.success(f"✅ Génération terminée! (Modèle: {epoch_info})")
+                            
+                            # Display images in grid
+                            cols_per_row = 4
+                            for i in range(0, len(images), cols_per_row):
+                                cols = st.columns(cols_per_row)
+                                for j in range(cols_per_row):
+                                    idx = i + j
+                                    if idx < len(images):
+                                        with cols[j]:
+                                            st.image(images[idx], caption=f"Image {idx+1}", use_container_width=True)
+                            
+                            # Download option
+                            st.markdown("---")
+                            if len(images) == 1:
+                                # Single image download
+                                buf = BytesIO()
+                                images[0].save(buf, format='PNG')
+                                st.download_button(
+                                    label="💾 Télécharger l'image",
+                                    data=buf.getvalue(),
+                                    file_name=f"generated_{config_name}.png",
+                                    mime="image/png"
+                                )
+                    except Exception as e:
+                        st.error(f"❌ Erreur: {e}")
+                        import traceback
+                        st.code(traceback.format_exc())
+            else:
+                st.info("👆 Choisis le nombre d'images et clique sur 'Générer'")
+                
+                # Show placeholder
+                placeholder_cols = st.columns(4)
+                for i, col in enumerate(placeholder_cols):
+                    with col:
+                        placeholder = np.random.randint(0, 255, (128, 128, 3), dtype=np.uint8)
+                        placeholder[:] = [45, 55, 72]  # Dark gray
+                        st.image(placeholder, caption=f"Image {i+1}", use_container_width=True)
         
         # Show recent samples
         st.markdown("---")
@@ -861,4 +994,15 @@ elif page == "🎨 Inference":
             for idx, img_path in enumerate(sample_images):
                 with cols[idx % 4]:
                     img = Image.open(img_path)
-    
+                    epoch = img_path.stem.split('_')[-1]
+                    st.image(img, caption=f"Epoch {epoch}", use_container_width=True)
+        else:
+            st.info("Aucune image générée pour l'instant.")
+
+# Footer
+st.markdown("---")
+st.markdown("""
+    <div style='text-align: center; color: gray; font-size: 12px;'>
+        <p>🔥 Diffusion Model Training Dashboard | Powered by Streamlit</p>
+    </div>
+    """, unsafe_allow_html=True)
