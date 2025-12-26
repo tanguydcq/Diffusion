@@ -273,7 +273,7 @@ def train(args, config_name, resume=False, reset=False):
             save_images(sampled_images, save_path)
             writer.add_images("Generated_Images", sampled_images, global_step=epoch)
 
-        if epoch % 10 == 0:
+        if epoch % 2 == 0:
             save_checkpoint(model, optimizer, epoch, os.path.join("models", run_name, f"ckpt_{epoch}.pt"))
 
     save_checkpoint(model, optimizer, epoch, os.path.join("models", run_name, "ckpt_final.pt"))

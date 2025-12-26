@@ -5,6 +5,8 @@ import json
 import os
 import subprocess
 import glob
+import time
+import signal
 from pathlib import Path
 from PIL import Image
 from datetime import datetime
@@ -12,6 +14,7 @@ import pandas as pd
 from io import BytesIO
 from diffusion import Diffusion
 from model import get_model
+import streamlit.components.v1 as components
 
 # Page configuration
 st.set_page_config(
@@ -173,6 +176,153 @@ def get_sample_images(dataset, config):
     # Find sample images
     images = sorted(results_dir.glob("sample_epoch_*.png"))
     return images[-5:] if images else []  # Last 5 samples
+
+def get_running_trainings():
+    """Detect running training processes and their status"""
+    running = []
+    
+    try:
+        import psutil
+    except ImportError:
+        return []
+    
+    try:
+        # First pass: collect all train.py processes
+        candidates = []
+        
+        for proc in psutil.process_iter(['pid', 'name', 'cmdline', 'create_time', 'ppid']):
+            try:
+                try:
+                    cmdline = proc.cmdline()
+                except (psutil.AccessDenied, psutil.NoSuchProcess):
+                    continue
+                
+                if not cmdline:
+                    continue
+                    
+                cmdline_str = ' '.join(cmdline)
+                if 'train.py' not in cmdline_str:
+                    continue
+                
+                # Extract config name
+                config_name = None
+                for i, arg in enumerate(cmdline):
+                    if arg == '--config' and i + 1 < len(cmdline):
+                        config_name = cmdline[i + 1]
+                        break
+                
+                if config_name:
+                    candidates.append({
+                        'pid': proc.pid,
+                        'ppid': proc.ppid(),
+                        'config': config_name,
+                        'create_time': proc.create_time()
+                    })
+            except (psutil.NoSuchProcess, psutil.AccessDenied, AttributeError):
+                continue
+        
+        # Second pass: filter out parent processes (keep only child workers)
+        # If two processes have same config, keep only the one with ppid in the candidate list
+        config_groups = {}
+        for cand in candidates:
+            config = cand['config']
+            if config not in config_groups:
+                config_groups[config] = []
+            config_groups[config].append(cand)
+        
+        # For each config, select the best process (child if parent-child relationship)
+        selected_processes = []
+        for config, procs in config_groups.items():
+            if len(procs) == 1:
+                selected_processes.append(procs[0])
+            else:
+                # Multiple processes with same config - check for parent/child
+                pids = {p['pid'] for p in procs}
+                ppids = {p['ppid'] for p in procs}
+                
+                # Find child process (one whose ppid is in pids)
+                children = [p for p in procs if p['ppid'] in pids]
+                
+                if children:
+                    # Keep the child (the actual worker)
+                    selected_processes.append(children[0])
+                else:
+                    # No clear parent-child, keep the oldest one
+                    selected_processes.append(min(procs, key=lambda p: p['create_time']))
+        
+        # Third pass: get detailed info for selected processes
+        for proc_info in selected_processes:
+            try:
+                from config import CONFIGS
+                config_name = proc_info['config']
+                
+                if config_name in CONFIGS:
+                    config = CONFIGS[config_name]
+                    dataset = config.get('dataset_name', 'UNKNOWN')
+                    run_name = f"{dataset}/{config_name}"
+                    models_dir = Path(f"models/{run_name}")
+                    
+                    current_epoch = 0
+                    total_epochs = config.get('epochs', 0)
+                    
+                    if models_dir.exists():
+                        # Find checkpoint with highest epoch number
+                        max_epoch = -1
+                        latest_ckpt = None
+                        
+                        for ckpt in models_dir.glob("ckpt_*.pt"):
+                            if ckpt.name == "ckpt_final.pt":
+                                # Final checkpoint - try to get epoch from it
+                                try:
+                                    checkpoint = torch.load(ckpt, map_location='cpu')
+                                    if isinstance(checkpoint, dict) and 'epoch' in checkpoint:
+                                        epoch_num = checkpoint['epoch']
+                                        if epoch_num > max_epoch:
+                                            max_epoch = epoch_num
+                                            latest_ckpt = ckpt
+                                except:
+                                    pass
+                            else:
+                                # Regular checkpoint - extract epoch from filename
+                                try:
+                                    epoch_str = ckpt.stem.split('_')[1]
+                                    epoch_num = int(epoch_str)
+                                    if epoch_num > max_epoch:
+                                        max_epoch = epoch_num
+                                        latest_ckpt = ckpt
+                                except (ValueError, IndexError):
+                                    continue
+                        
+                        # Load the checkpoint with highest epoch
+                        if latest_ckpt:
+                            try:
+                                checkpoint = torch.load(latest_ckpt, map_location='cpu')
+                                if isinstance(checkpoint, dict) and 'epoch' in checkpoint:
+                                    current_epoch = checkpoint['epoch']
+                                else:
+                                    # Fallback to filename epoch
+                                    current_epoch = max_epoch
+                            except:
+                                current_epoch = max_epoch
+                    
+                    runtime_seconds = time.time() - proc_info['create_time']
+                    runtime_str = f"{int(runtime_seconds // 3600)}h {int((runtime_seconds % 3600) // 60)}m"
+                    
+                    running.append({
+                        'pid': proc_info['pid'],
+                        'config': config_name,
+                        'dataset': dataset,
+                        'current_epoch': current_epoch,
+                        'total_epochs': total_epochs,
+                        'progress': current_epoch / total_epochs if total_epochs > 0 else 0,
+                        'runtime': runtime_str
+                    })
+            except Exception:
+                continue
+        
+        return running
+    except Exception as e:
+        return []
 
 @st.cache_resource
 def load_cryptopunk_model(config_name="cryptopunks_classes_fast"):
@@ -506,7 +656,98 @@ if page == "📊 Dashboard":
 # ============================================================================
 
 elif page == "🎯 Training":
-    st.markdown("<div class='main-header'>🎯 Lancer un Entraînement</div>", unsafe_allow_html=True)
+    st.markdown("<div class='main-header'>🎯 Entraînement & Monitoring</div>", unsafe_allow_html=True)
+    
+    # ========================================================================
+    # SECTION 1: ACTIVE TRAININGS MONITOR
+    # ========================================================================
+    st.subheader("🏃 Entraînements en Cours")
+    
+    running_trainings = get_running_trainings()
+    
+    if running_trainings:
+        for train in running_trainings:
+            with st.expander(f"⚡ {train['config']} - {train['dataset']} (PID: {train['pid']})", expanded=True):
+                col1, col2, col3 = st.columns([2, 2, 1])
+                
+                with col1:
+                    st.metric("📊 Progression", f"{train['current_epoch']}/{train['total_epochs']} epochs")
+                    st.progress(train['progress'])
+                
+                with col2:
+                    st.metric("⏱️ Durée", train['runtime'])
+                    st.metric("🔢 PID", train['pid'])
+                
+                with col3:
+                    st.write("")
+                    st.write("")
+                    if st.button(f"🛑 Arrêter", key=f"stop_{train['pid']}", use_container_width=True):
+                        try:
+                            if os.name == 'nt':
+                                subprocess.run(['taskkill', '/F', '/PID', str(train['pid'])], check=True)
+                            else:
+                                os.kill(train['pid'], signal.SIGTERM)
+                            st.success(f"✅ Processus {train['pid']} arrêté")
+                            time.sleep(1)
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"❌ Erreur: {e}")
+                
+                # Show latest images if available
+                sample_images = get_sample_images(train['dataset'], train['config'])
+                if sample_images:
+                    st.markdown("**🖼️ Dernières générations:**")
+                    cols = st.columns(min(5, len(sample_images)))
+                    for idx, img_path in enumerate(sample_images):
+                        with cols[idx]:
+                            img = Image.open(img_path)
+                            epoch = img_path.stem.split('_')[-1]
+                            st.image(img, caption=f"E{epoch}", use_container_width=True)
+    else:
+        st.info("⏸️ Aucun entraînement en cours. Lance un entraînement ci-dessous!")
+    
+    st.markdown("---")
+    
+    # ========================================================================
+    # SECTION 2: TENSORBOARD INTEGRATION
+    # ========================================================================
+    st.subheader("📊 TensorBoard")
+    
+    col1, col2 = st.columns([3, 1])
+    
+    with col1:
+        tb_running = check_tensorboard_running()
+        if tb_running:
+            st.success("✅ TensorBoard actif")
+            
+            # Embed TensorBoard in iframe
+            with st.container():
+                components.iframe(get_tensorboard_url(), height=600, scrolling=True)
+        else:
+            st.warning("⚠️ TensorBoard n'est pas en cours d'exécution")
+            st.info("Lance TensorBoard pour voir les métriques d'entraînement en temps réel")
+    
+    with col2:
+        st.write("")
+        st.write("")
+        if not tb_running:
+            if st.button("🚀 Lancer TensorBoard", use_container_width=True, type="primary"):
+                if start_tensorboard():
+                    st.success("✅ TensorBoard lancé!")
+                    time.sleep(2)
+                    st.rerun()
+        else:
+            st.markdown(f"🔗 [Ouvrir dans nouvel onglet]({get_tensorboard_url()})")
+            
+            if st.button("🔄 Rafraîchir", use_container_width=True):
+                st.rerun()
+    
+    st.markdown("---")
+    
+    # ========================================================================
+    # SECTION 3: START NEW TRAINING
+    # ========================================================================
+    st.subheader("🚀 Lancer un Nouvel Entraînement")
     
     # Configuration selection
     configs = get_available_configs()
@@ -518,19 +759,18 @@ elif page == "🎯 Training":
     col1, col2 = st.columns([2, 1])
     
     with col1:
-        st.subheader("⚙️ Configuration")
+        st.markdown("**⚙️ Configuration**")
         
         config_name = st.selectbox(
             "Choisir une configuration:",
             list(configs.keys()),
-            help="Sélectionne la configuration d'entraînement"
+            help="Sélectionne la configuration d'entraînement",
+            key="train_config_select"
         )
         
         # Display config details
         if config_name:
             config = configs[config_name]
-            
-            st.markdown("**Paramètres de la configuration:**")
             
             # Convert dict to Config object if needed
             if isinstance(config, dict):
@@ -546,22 +786,20 @@ elif page == "🎯 Training":
                 "Learning Rate": config_obj.lr,
                 "T (steps)": config_obj.T,
                 "Image Size": f"{config_obj.img_size}x{config_obj.img_size}",
-                "Channels": config_obj.image_channels,
             }
             
             if hasattr(config_obj, 'num_classes') and config_obj.num_classes:
                 config_info["Classes"] = config_obj.num_classes
             
-            if hasattr(config_obj, 'num_types') and config_obj.num_types:
-                config_info["Types"] = config_obj.num_types
-                config_info["Accessories"] = config_obj.num_accessories
+            if hasattr(config_obj, 'cfg_dropout') and config_obj.cfg_dropout:
+                config_info["CFG Dropout"] = f"{config_obj.cfg_dropout} ({int(config_obj.cfg_dropout*100)}%)"
             
-            # Display as table
-            config_df = pd.DataFrame(list(config_info.items()), columns=["Paramètre", "Valeur"])
-            st.dataframe(config_df, use_container_width=True, hide_index=True)
+            # Display as compact table
+            for key, value in config_info.items():
+                st.text(f"• {key}: {value}")
     
     with col2:
-        st.subheader("🎮 Options")
+        st.markdown("**🎮 Options**")
         
         reset_training = st.checkbox(
             "🔄 Reset (supprimer checkpoints)",
@@ -569,56 +807,37 @@ elif page == "🎯 Training":
             help="Supprime les checkpoints existants et recommence"
         )
         
-        use_cuda = st.checkbox(
-            "⚡ Utiliser CUDA",
-            value=torch.cuda.is_available(),
-            disabled=not torch.cuda.is_available(),
-            help="Entraîner sur GPU (si disponible)"
-        )
-        
         if torch.cuda.is_available():
             gpu_name = torch.cuda.get_device_name(0)
             st.success(f"✅ GPU: {gpu_name}")
         else:
-            st.warning("⚠️ Aucun GPU détecté")
+            st.warning("⚠️ CPU only")
     
-    st.markdown("---")
-    
-    # Training controls
-    col1, col2, col3 = st.columns([1, 1, 1])
-    
-    with col1:
+    # Launch button
+    col_a, col_b = st.columns([1, 1])
+    with col_a:
         if st.button("🚀 Lancer l'Entraînement", use_container_width=True, type="primary"):
             if config_name:
-                with st.spinner("Démarrage de l'entraînement..."):
-                    try:
-                        # Build command
-                        cmd = [".venv\\Scripts\\python.exe", "train.py", "--config", config_name]
-                        if reset_training:
-                            cmd.append("--reset")
-                        
-                        # Launch in new console window
-                        subprocess.Popen(
-                            cmd,
-                            creationflags=subprocess.CREATE_NEW_CONSOLE if os.name == 'nt' else 0,
-                            cwd=os.getcwd()
-                        )
-                        st.success(f"✅ Entraînement lancé: {config_name}")
-                        st.info("📺 L'entraînement tourne dans un nouveau terminal. Ferme le terminal pour l'arrêter.")
-                    except Exception as e:
-                        st.error(f"❌ Erreur: {e}")
+                try:
+                    # Build command
+                    cmd = [".venv\\Scripts\\python.exe", "train.py", "--config", config_name]
+                    if reset_training:
+                        cmd.append("--reset")
+                    
+                    # Launch in new console window
+                    subprocess.Popen(
+                        cmd,
+                        creationflags=subprocess.CREATE_NEW_CONSOLE if os.name == 'nt' else 0,
+                        cwd=os.getcwd()
+                    )
+                    st.success(f"✅ Entraînement lancé: {config_name}")
+                    st.info("📺 Processus démarré! Rafraîchis la page pour voir le monitoring.")
+                    time.sleep(2)
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"❌ Erreur: {e}")
     
-    with col2:
-        if st.button("📊 Ouvrir TensorBoard", use_container_width=True):
-            if not check_tensorboard_running():
-                with st.spinner("Lancement de TensorBoard..."):
-                    if start_tensorboard():
-                        st.success("✅ TensorBoard lancé!")
-                    else:
-                        st.error("❌ Échec du lancement")
-            st.markdown(f"🔗 [Ouvrir TensorBoard]({get_tensorboard_url()})")
-    
-    with col3:
+    with col_b:
         if st.button("📁 Ouvrir Dossier Modèles", use_container_width=True):
             models_dir = Path("models")
             if models_dir.exists():
@@ -627,26 +846,12 @@ elif page == "🎯 Training":
             else:
                 st.error("Dossier models introuvable")
     
-    st.markdown("---")
-    
-    # Training tips
-    with st.expander("💡 Conseils d'Entraînement"):
-        st.markdown("""
-        **Configurations recommandées:**
-        
-        - **Fast prototyping:** Utilise les configs `*_fast` (T=500, moins d'epochs)
-        - **Qualité optimale:** Utilise les configs standards (T=1000, 100-200 epochs)
-        - **Classes conditionnelles:** Utilise les configs `*_classes` pour génération conditionnelle
-        
-        **Monitoring:**
-        - TensorBoard te montre les courbes de MSE, grad norm, learning rate
-        - Les samples sont générés tous les 10 epochs dans `results/`
-        - Les checkpoints sont sauvegardés tous les 20 epochs dans `models/`
-        
-        **Arrêt d'urgence:**
-        - Ferme le terminal pour arrêter l'entraînement
-        - Les checkpoints sont automatiquement sauvegardés
-        """)
+    # Auto-refresh when trainings are active (every 10 seconds)
+    if running_trainings:
+        st.markdown("---")
+        st.info("🔄 Rafraîchissement automatique actif (10s)")
+        time.sleep(10)
+        st.rerun()
 
 # ============================================================================
 # PAGE: CONFIGURATIONS
