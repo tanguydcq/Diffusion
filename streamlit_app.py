@@ -4,9 +4,9 @@ import numpy as np
 import json
 import os
 from PIL import Image
-from diffusion import Diffusion
-from model import get_model
-from config import get_config_by_name
+from src.diffusion import Diffusion
+from src.model import get_model
+from src.config import get_config_by_name
 import argparse
 
 # Page configuration

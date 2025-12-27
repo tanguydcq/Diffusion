@@ -12,8 +12,8 @@ from PIL import Image
 from datetime import datetime
 import pandas as pd
 from io import BytesIO
-from diffusion import Diffusion
-from model import get_model
+from src.diffusion import Diffusion
+from src.model import get_model
 import streamlit.components.v1 as components
 
 # Page configuration
@@ -70,7 +70,7 @@ st.sidebar.info("""
 def get_available_configs():
     """Get all available configurations from config.py"""
     try:
-        from config import CONFIGS
+        from src.config import CONFIGS
         return CONFIGS
     except:
         return {}
@@ -252,9 +252,9 @@ def get_running_trainings():
         
         # Third pass: get detailed info for selected processes
         for proc_info in selected_processes:
-            try:
-                from config import CONFIGS
-                config_name = proc_info['config']
+                try:
+                    from src.config import CONFIGS
+                    config_name = proc_info['config']
                 
                 if config_name in CONFIGS:
                     config = CONFIGS[config_name]
@@ -327,12 +327,12 @@ def get_running_trainings():
 @st.cache_resource
 def load_cryptopunk_model(config_name="cryptopunks_classes_fast"):
     """Load CryptoPunk model and metadata for interactive generation"""
-    try:
-        from config import get_config_by_name
-        import argparse
-        
-        # Get configuration
-        config = get_config_by_name(config_name)
+        try:
+            from src.config import get_config_by_name
+            import argparse
+            
+            # Get configuration
+            config = get_config_by_name(config_name)
         args = argparse.Namespace(**vars(config))
         
         # Load metadata
@@ -459,11 +459,11 @@ def generate_cryptopunk(model, diffusion, device, type_idx, accessory_indices, c
 
 def generate_simple_images(config_name, num_samples=4, cfg_scale=3.0):
     """Generate images for simple conditional or unconditional models"""
-    try:
-        from config import get_config_by_name
-        
-        # Load config
-        args = get_config_by_name(config_name)
+        try:
+            from src.config import get_config_by_name
+            
+            # Load config
+            args = get_config_by_name(config_name)
         device = args.device
         
         # Load model
@@ -774,7 +774,7 @@ elif page == "🎯 Training":
             
             # Convert dict to Config object if needed
             if isinstance(config, dict):
-                from config import Config
+                from src.config import Config
                 config_obj = Config(**config)
             else:
                 config_obj = config
@@ -873,7 +873,7 @@ elif page == "⚙️ Configurations":
     for name, config in configs.items():
         # Handle both dict and Config object
         if isinstance(config, dict):
-            from config import Config
+            from src.config import Config
             config_obj = Config(**config)
         else:
             config_obj = config

@@ -1,7 +1,7 @@
 import torch
 import torchvision
 from torch.utils.data import DataLoader, Dataset
-from utils import plot_images
+from .utils import plot_images
 import json
 import os
 from PIL import Image

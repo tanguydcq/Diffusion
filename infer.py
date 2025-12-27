@@ -1,12 +1,12 @@
 import torch
 import os
-from diffusion import Diffusion
-from model import get_model
-from dataset import get_data
-from utils import make_gif, save_images
+from src.diffusion import Diffusion
+from src.model import get_model
+from src.dataset import get_data
+from src.utils import make_gif, save_images
 
 import argparse
-from config import get_config_by_name
+from src.config import get_config_by_name
 
 # ... existing imports ...
 

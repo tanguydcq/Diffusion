@@ -10,11 +10,11 @@ import argparse
 from tqdm import tqdm
 from torch import optim
 from torch.utils.tensorboard import SummaryWriter
-from utils import setup_logging, save_images
-from model import get_model
-from dataset import get_data
-from diffusion import Diffusion
-from config import get_config_by_name
+from src.utils import setup_logging, save_images
+from src.model import get_model
+from src.dataset import get_data
+from src.diffusion import Diffusion
+from src.config import get_config_by_name
 
 
 logging.basicConfig(
