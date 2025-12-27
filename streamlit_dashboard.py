@@ -252,11 +252,13 @@ def get_running_trainings():
         
         # Third pass: get detailed info for selected processes
         for proc_info in selected_processes:
-                try:
-                    from src.config import CONFIGS
-                    config_name = proc_info['config']
-                
-                if config_name in CONFIGS:
+            try:
+                from src.config import CONFIGS
+                config_name = proc_info['config']
+            except Exception:
+                continue
+
+            if config_name in CONFIGS:
                     config = CONFIGS[config_name]
                     dataset = config.get('dataset_name', 'UNKNOWN')
                     run_name = f"{dataset}/{config_name}"
@@ -317,8 +319,6 @@ def get_running_trainings():
                         'progress': current_epoch / total_epochs if total_epochs > 0 else 0,
                         'runtime': runtime_str
                     })
-            except Exception:
-                continue
         
         return running
     except Exception as e:
@@ -327,33 +327,33 @@ def get_running_trainings():
 @st.cache_resource
 def load_cryptopunk_model(config_name="cryptopunks_classes_fast"):
     """Load CryptoPunk model and metadata for interactive generation"""
-        try:
-            from src.config import get_config_by_name
-            import argparse
-            
-            # Get configuration
-            config = get_config_by_name(config_name)
+    try:
+        from src.config import get_config_by_name
+        import argparse
+
+        # Get configuration
+        config = get_config_by_name(config_name)
         args = argparse.Namespace(**vars(config))
-        
+
         # Load metadata
         metadata_path = "data/CRYPTOPUNKS_CLASSES/metadata.json"
         if not os.path.exists(metadata_path):
             return None, None, None, None, "Metadata not found"
-        
+
         with open(metadata_path, 'r') as f:
             metadata = json.load(f)
-        
+
         # Setup model
         device = "cuda" if torch.cuda.is_available() else "cpu"
         args.device = device
         model = get_model(args).to(device)
-        
+
         # Load checkpoint
         run_name = os.path.join(args.dataset_name, config_name)
         models_dir = os.path.join("models", run_name)
         ckpt_path = None
         latest_epoch = -1
-        
+
         if os.path.exists(models_dir):
             # Scan for latest checkpoint
             for f in os.listdir(models_dir):
@@ -365,7 +365,7 @@ def load_cryptopunk_model(config_name="cryptopunks_classes_fast"):
                             ckpt_path = os.path.join(models_dir, f)
                     except ValueError:
                         continue
-            
+
             # Check final checkpoint
             final_path = os.path.join(models_dir, "ckpt_final.pt")
             if os.path.exists(final_path):
@@ -377,18 +377,18 @@ def load_cryptopunk_model(config_name="cryptopunks_classes_fast"):
                         ckpt_path = final_path
                 except:
                     pass
-        
+
         if not ckpt_path or not os.path.exists(ckpt_path):
             return None, None, None, None, "No checkpoint found"
-        
+
         checkpoint = torch.load(ckpt_path, map_location=device)
         if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
             model.load_state_dict(checkpoint['model_state_dict'])
         else:
             model.load_state_dict(checkpoint)
-        
+
         model.eval()
-        
+
         # Setup diffusion
         diffusion = Diffusion(
             img_size=args.img_size,
@@ -398,9 +398,10 @@ def load_cryptopunk_model(config_name="cryptopunks_classes_fast"):
             beta_start=args.beta_start,
             beta_end=args.beta_end
         )
-        
+
         epoch_info = f"Epoch {latest_epoch}"
         return model, diffusion, metadata, device, epoch_info
+
     except Exception as e:
         return None, None, None, None, str(e)
 
@@ -459,22 +460,22 @@ def generate_cryptopunk(model, diffusion, device, type_idx, accessory_indices, c
 
 def generate_simple_images(config_name, num_samples=4, cfg_scale=3.0):
     """Generate images for simple conditional or unconditional models"""
-        try:
-            from src.config import get_config_by_name
-            
-            # Load config
-            args = get_config_by_name(config_name)
+    try:
+        from src.config import get_config_by_name
+
+        # Load config
+        args = get_config_by_name(config_name)
         device = args.device
-        
+
         # Load model
         model = get_model(args).to(device)
-        
+
         # Load checkpoint
         run_name = os.path.join(args.dataset_name, config_name)
         models_dir = os.path.join("models", run_name)
         ckpt_path = None
         latest_epoch = -1
-        
+
         if os.path.exists(models_dir):
             for f in os.listdir(models_dir):
                 if f.startswith('ckpt_') and f.endswith('.pt') and f != 'ckpt_final.pt':
@@ -485,7 +486,7 @@ def generate_simple_images(config_name, num_samples=4, cfg_scale=3.0):
                             ckpt_path = os.path.join(models_dir, f)
                     except ValueError:
                         continue
-            
+
             final_path = os.path.join(models_dir, "ckpt_final.pt")
             if os.path.exists(final_path):
                 try:
@@ -496,18 +497,18 @@ def generate_simple_images(config_name, num_samples=4, cfg_scale=3.0):
                         ckpt_path = final_path
                 except:
                     pass
-        
+
         if not ckpt_path or not os.path.exists(ckpt_path):
             return None, "No checkpoint found"
-        
+
         checkpoint = torch.load(ckpt_path, map_location=device)
         if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
             model.load_state_dict(checkpoint['model_state_dict'])
         else:
             model.load_state_dict(checkpoint)
-        
+
         model.eval()
-        
+
         # Setup diffusion
         diffusion = Diffusion(
             img_size=args.img_size,
@@ -517,19 +518,19 @@ def generate_simple_images(config_name, num_samples=4, cfg_scale=3.0):
             beta_start=args.beta_start,
             beta_end=args.beta_end
         )
-        
+
         # Generate images
         use_cfg = cfg_scale > 1.0 and (
             (hasattr(model, 'num_classes') and model.num_classes is not None) or
             (hasattr(model, 'attr_embedding') and model.attr_embedding is not None)
         )
-        
+
         # Prepare conditioning if needed
         labels = None
         if hasattr(model, 'num_classes') and model.num_classes is not None:
             # Class conditioning (MNIST) - cycle through classes
             labels = torch.tensor([i % model.num_classes for i in range(num_samples)]).to(device)
-        
+
         # Sample images
         if use_cfg:
             sampled_images = diffusion.sample_cfg(
@@ -540,22 +541,22 @@ def generate_simple_images(config_name, num_samples=4, cfg_scale=3.0):
             sampled_images = diffusion.sample(
                 model, n=num_samples, save_gif=False, labels=labels
             )
-        
+
         # Convert to PIL images
         images = []
         for i in range(num_samples):
             img_tensor = sampled_images[i]
             img_array = (img_tensor * 255).type(torch.uint8).permute(1, 2, 0).cpu().numpy()
-            
+
             # Handle grayscale
-            if img_array.shape[2] == 1:
+            if img_array.ndim == 2 or (img_array.ndim == 3 and img_array.shape[2] == 1):
                 img_array = img_array.squeeze(-1)
-            
+
             img = Image.fromarray(img_array)
             images.append(img)
-        
+
         return images, f"Epoch {latest_epoch}"
-    
+
     except Exception as e:
         return None, str(e)
 
