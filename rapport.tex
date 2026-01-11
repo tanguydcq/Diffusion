@@ -43,7 +43,7 @@ Nous avons commencé par implémenter une boucle d'entraînement de diffusion cl
     \item Entraînement du modèle à prédire le bruit ajouté.
     \item Sampling inverse pour générer des chiffres.
 \end{itemize}
-Cette étape a confirmé que notre U-Net et notre gestion du bruit fonctionnaient correctement sur des images $32\times32$ en noir et blanc.
+Cette étape a confirmé que notre U-Net et notre gestion du bruit fonctionnaient correctement sur des images $16\times16$ en noir et blanc.
 
 \subsection{Phase 2 : Passage aux CryptoPunks (Non-Conditionnel)}
 Une fois le concept validé, nous avons adapté le modèle aux images RGB des CryptoPunks. La complexité a augmenté (3 canaux couleurs, plus de détails), nécessitant un ajustement de la capacité du réseau (nombre de filtres, profondeur). À ce stade, le modèle générait des visages aléatoires sans aucun contrôle sur le résultat.
