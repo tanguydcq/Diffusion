@@ -1,0 +1,130 @@
+\documentclass[a4paper,11pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[french]{babel}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{geometry}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{xcolor}
+\usepackage{titlesec}
+\usepackage{booktabs}
+\usepackage{float}
+
+% Configuration des marges
+\geometry{hmargin=2.5cm,vmargin=2.5cm}
+
+% Commandes pour les placeholders
+\newcommand{\placeholder}[1]{\textcolor{red}{\textbf{[#1]}}}
+
+\title{\textbf{Rapport de Projet : Génération d'Images par Modèles de Diffusion}}
+\author{Tanguy Ducroq, Guillaume Rodriguez}
+\date{11 Janvier 2026}
+
+\begin{document}
+
+\maketitle
+
+\section{Introduction}
+
+Ce projet a pour objectif d'implémenter et d'entraîner des modèles de diffusion (DDPM) "from scratch" pour la génération d'images. Notre démarche a été incrémentale, partant d'architectures simples pour valider les concepts mathématiques sur des données basiques, jusqu'à des modèles conditionnels complexes capables de générer des avatars de type "CryptoPunks" avec des attributs spécifiques (genre, accessoires, etc.).
+
+Nous avons également développé une interface de supervision et de génération interactive via Streamlit pour faciliter l'exploration des résultats.
+
+\section{Méthodologie Progressive}
+
+Notre approche s'est découpée en quatre phases distinctes pour isoler les difficultés :
+
+\subsection{Phase 1 : Diffusion Simple sur MNIST}
+Nous avons commencé par implémenter une boucle d'entraînement de diffusion classique (DDPM) couplée à une architecture U-Net simplifiée. L'objectif était de valider la pipeline :
+\begin{itemize}
+    \item Ajout de bruit progressif (schedule linéaire).
+    \item Entraînement du modèle à prédire le bruit ajouté.
+    \item Sampling inverse pour générer des chiffres.
+\end{itemize}
+Cette étape a confirmé que notre U-Net et notre gestion du bruit fonctionnaient correctement sur des images $32\times32$ en noir et blanc.
+
+\subsection{Phase 2 : Passage aux CryptoPunks (Non-Conditionnel)}
+Une fois le concept validé, nous avons adapté le modèle aux images RGB des CryptoPunks. La complexité a augmenté (3 canaux couleurs, plus de détails), nécessitant un ajustement de la capacité du réseau (nombre de filtres, profondeur). À ce stade, le modèle générait des visages aléatoires sans aucun contrôle sur le résultat.
+
+\subsection{Phase 3 : Conditionnement par Classes (MNIST)}
+Nous avons ensuite introduit le conditionnement pour contrôler la génération (e.g., demander un "3" ou un "7"). C'est ici que nous avons expérimenté l'injection d'embeddings de classes dans le U-Net, concaténés avec les embeddings temporels.
+
+\subsection{Phase 4 : Conditionnement Multi-Attributs (CryptoPunks)}
+Enfin, nous avons généralisé l'approche pour les CryptoPunks en utilisant les métadonnées (Json). Contrairement à MNIST (une seule classe par image), les CryptoPunks possèdent de multiples attributs (Type: Male/Female, Accessoires: Glasses, Hat, etc.). Nous avons créé un vecteur d'embedding combinant ces caractéristiques pour guider la diffusion.
+
+\section{Difficultés Techniques et Solutions (Le "Vrai" CFG)}
+
+La principale difficulté rencontrée concernait le conditionnement du modèle, particulièrement pour les CryptoPunks.
+
+\subsection{L'échec de l'embedding simple}
+Initialement, nous avons naïvement injecté l'embedding des classes (ou attributs) directement dans le réseau, en l'additionnant ou le concaténant simplement à l'embedding de temps.
+\textbf{Problème :} Le réseau avait tendance à ignorer cette information subtile. Bien que la perte (loss) diminuait, le modèle peinait à respecter strictement la consigne (par exemple, générer un homme avec des lunettes produisait souvent un résultat flou ou sans lunettes), l'information de guidage étant "noyée" dans le bruit.
+
+\subsection{La solution : Classifier-Free Guidance (CFG)}
+Pour pallier ce manque d'adhérence aux consignes, nous avons implémenté le \textit{Classifier-Free Guidance}. Au lieu de simplement passer l'embedding de condition $c$, la méthode consiste à entraîner le modèle conjointement en conditionnel et en inconditionnel (en remplaçant aléatoirement le label par un vecteur vide lors de l'entraînement).
+
+Lors de la génération (sampling), nous calculons deux prédictions de bruit :
+\begin{itemize}
+    \item $\epsilon_{cond}$ : La prédiction sachant les attributs (avec guidage).
+    \item $\epsilon_{uncond}$ : La prédiction "libre" (sans guidage).
+\end{itemize}
+Le bruit final est une extrapolation linéaire :
+$$ \epsilon_{final} = \epsilon_{uncond} + w \cdot (\epsilon_{cond} - \epsilon_{uncond}) $$
+Avec un poids $w > 1$, nous forçons le modèle à amplifier les caractéristiques spécifiques demandées. Cela a radicalement amélioré la précision des attributs générés.
+
+\section{Interface et Supervision}
+
+Pour superviser les entraînements souvent longs, nous avons développé une application \textbf{Streamlit} (\texttt{streamlit\_dashboard.py}).
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=1.0\linewidth]{imgs/cryptopunk_dashboard_guided_gen.png}
+    \caption{Interface de supervision permettant la génération interactive guidée}
+    \label{fig:streamlit}
+\end{figure}
+
+Cette interface permet de :
+\begin{enumerate}
+    \item Suivre en temps réel les courbes de Loss (données Tensorboard).
+    \item Visualiser les samples générés à chaque époque pour vérifier la convergence.
+    \item Tester le modèle final en mode interactif : l'utilisateur coche des cases (Homme, Lunettes noires, Chapeau...) et le modèle génère l'image correspondante à la volée en utilisant le CFG.
+\end{enumerate}
+
+\section{Résultats}
+
+Ci-dessous un aperçu des résultats obtenus sur les configurations finales.
+
+\subsection{Évolution de l'apprentissage}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=1.0\linewidth]{imgs/losses.png}
+    \caption{Comparaison des courbes de perte (Loss) pour les différents entraînements}
+\end{figure}
+
+\subsection{Générations Conditionnelles}
+
+\subsubsection{MNIST}
+Le modèle parvient à générer des chiffres spécifiques avec une grande clarté.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.8\linewidth]{imgs/mnist_classes.png}
+    \caption{Génération de chiffres MNIST conditionnés par classes}
+    \label{fig:mnist_classes}
+\end{figure}
+
+\subsubsection{CryptoPunks (Multi-Attributs)}
+Grâce à l'approche accélérée et au CFG, nous obtenons des résultats cohérents respectant les contraintes d'attributs.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\linewidth]{imgs/generated_cryptopunks.png}
+    \caption{CryptoPunks générés par le modèle final}
+    \label{fig:results_punks}
+\end{figure}
+
+\end{document}
+
