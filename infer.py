@@ -8,8 +8,6 @@ from src.utils import make_gif, save_images
 import argparse
 from src.config import get_config_by_name
 
-# ... existing imports ...
-
 def infer(args, config_name):
     # Determine correct paths based on config
     run_name = os.path.join(args.dataset_name, config_name)

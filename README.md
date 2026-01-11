@@ -1,199 +1,102 @@
-# Diffusion Model - DDPM Implementation
+# Diffusion Model - DDPM & Generative AI
 
-Une implémentation de **Denoising Diffusion Probabilistic Models (DDPM)** en PyTorch pour la génération d'images sur MNIST et CryptoPunks.
+Implémentation complète "from scratch" de **Denoising Diffusion Probabilistic Models (DDPM)** en PyTorch.
+Ce projet explore la génération d'images, partant du simple débruitage sur MNIST jusqu'à la génération conditionnelle multi-attributs sur CryptoPunks (Genre, Accessoires, etc.) en utilisant le **Classifier-Free Guidance (CFG)**.
 
-## 📋 Description
+![CryptoPunks Générés](imgs/generated_cryptopunks.png)
 
-Ce projet implémente un modèle de diffusion capable de générer des images à partir de bruit aléatoire. Il inclut :
-
-- Un modèle simple (SimpleUNet) pour MNIST
-- Un modèle complexe (UNet avec attention) pour CryptoPunks
-- Multiple configurations d'entraînement
-- Scripts de training et d'inférence
-- Génération de GIFs montrant le processus de diffusion/débruitage
-
-## 🚀 Installation
-
-### Prérequis
-
-- Python 3.8+
-- CUDA (optionnel, recommandé pour l'entraînement)
-
-### Installation des dépendances
-
-```bash
-pip install torch torchvision tqdm tensorboard imageio numpy pillow matplotlib
-```
-
-## 📁 Structure du projet
+## 🏗️ Structure du Projet
 
 ```
 Diffusion/
-├── config.py              # Configurations d'entraînement
-├── dataset.py             # Chargement des datasets
-├── diffusion.py           # Processus de diffusion/débruitage
-├── model.py               # Architectures UNet
-├── train.py               # Script d'entraînement
-├── infer.py               # Script d'inférence
-├── utils.py               # Fonctions utilitaires
-├── download_cryptopunks.py # Script pour télécharger CryptoPunks
-├── training.ipynb         # Notebook Jupyter pour expérimentation
-└── README.md              # Ce fichier
+├── data/                  # Données brutes (MNIST, CryptoPunks)
+├── models/                # Checkpoints sauvegardés (.pt)
+├── results/               # Résultats de génération (images, gifs)
+├── runs/                  # Logs Tensorboard
+├── src/
+│   ├── tools/             # Scripts de téléchargement des données
+│   ├── config.py          # Configurations des modèles
+│   ├── dataset.py         # Gestion des datasets et metadata
+│   ├── diffusion.py       # Algorithme DDPM & Sampling
+│   ├── model.py           # Architectures U-Net (Simple & Conditionnel)
+│   └── utils.py           # Utilitaires divers
+├── streamlit_dashboard.py # Interface complète de supervision & génération
+├── train.py               # Script d'entraînement principal
+└── infer.py               # Script d'inférence en ligne de commande
 ```
 
-## 🎯 Utilisation
+## 🚀 Installation & Utilisation
 
-### Entraînement
+### 1. Environnement
 
-Pour entraîner un modèle avec une configuration spécifique :
-
-```bash
-# Configuration 1 (baseline) pour MNIST
-python train.py --config config1_mnist
-
-# Configuration 2 (fast prototyping) pour MNIST
-python train.py --config config2_mnist
-
-# Configuration 3 (high precision) pour MNIST
-python train.py --config config3_mnist
-
-# Pour CryptoPunks
-python train.py --config config1_cryptopunks
-```
-
-Les modèles sont sauvegardés dans `models/DATASET/CONFIG_NAME/`.
-
-### Inférence
-
-Pour générer des images et des GIFs avec un modèle entraîné :
-
-```bash
-# Génération avec MNIST
-python infer.py --config config1_mnist
-
-# Génération avec CryptoPunks
-python infer.py --config config1_cryptopunks
-```
-
-Les résultats sont sauvegardés dans `results/DATASET/CONFIG_NAME/` :
-
-- `noise.gif` : Visualisation du processus de bruitage
-- `sampling.gif` : Visualisation du processus de débruitage
-- `sampling.jpg` : Images générées finales
-
-### Interface Web (Streamlit)
-
-Une interface Streamlit permet de lancer rapidement des entraînements, visualiser les checkpoints, et générer des images (y compris le générateur CryptoPunk intégré).
-
-Pour lancer le dashboard (Windows PowerShell) :
+Activez votre environnement virtuel Python :
 
 ```powershell
-# Activer l'environnement virtuel
 .venv\Scripts\Activate.ps1
+```
 
-# Lancer Streamlit
+### 2. Données
+
+Téléchargez les datasets nécessaires via les scripts dans `src/tools/` :
+
+```bash
+# Pour CryptoPunks simple
+python -m src.tools.download_cryptopunks
+
+# Pour CryptoPunks avec métadonnées (classes/attributs)
+python -m src.tools.download_cryptopunks_with_metadata
+```
+
+(MNIST est téléchargé automatiquement au premier lancement).
+
+### 3. Dashboard Interactif (Recommandé)
+
+Tout le projet se pilote via le **Streamlit Dashboard** qui regroupe :
+
+- 📊 **Monitoring** : Suivi des courbes de loss (Tensorboard intégré).
+- 🎯 **Training** : Lancement des entraînements sur différentes configurations.
+- 🎨 **Inference** : Génération interactive (dessiner des chiffres ou créer des avatars).
+
+<p align="center">
+  <img src="imgs/cryptopunk_dashboard_guided_gen.png" width="800" />
+</p>
+
+Pour le lancer :
+
+```bash
 streamlit run streamlit_dashboard.py
 ```
 
-Ou depuis l'invite de commandes (cmd.exe) :
+## 🧠 Modèles & Configurations
 
-```bat
-:: Activer l'environnement virtuel
-.venv\Scripts\activate.bat
+Les configurations sont définies dans `src/config.py`. Voici les principales architectures implémentées :
 
-:: Lancer Streamlit
-streamlit run streamlit_dashboard.py
-```
+### 1. Modèles Non-Conditionnels
 
-Après démarrage Streamlit, l'application est disponible localement (par défaut) sur http://localhost:8501. Utilise l'onglet "Training" pour démarrer un entraînement et "Inference" pour générer des images.
+Diffusion standard pour apprendre la distribution des données.
 
-### Télécharger CryptoPunks
+- **`config1_mnist`** : U-Net léger pour MNIST (16x16).
+- **`config1_cryptopunks`** : Modèle RGB pour visages (32x32).
 
-```bash
-python download_cryptopunks.py
-```
+### 2. Modèles Conditionnels (Classes)
 
-## ⚙️ Configurations disponibles
+Injection d'embeddings de classes pour guider la génération (ex: générer un "3").
 
-### MNIST
+- **`mnist_classes`** : Conditionnement simple (0-9).
 
-| Config        | T (steps) | Epochs | LR   | Beta Schedule | Description            |
-| ------------- | --------- | ------ | ---- | ------------- | ---------------------- |
-| config1_mnist | 1000      | 100    | 3e-4 | 1e-4 → 0.02   | Baseline standard DDPM |
-| config2_mnist | 300       | 100    | 3e-4 | 1e-4 → 0.02   | Prototypage rapide     |
-| config3_mnist | 1000      | 100    | 2e-4 | 1e-4 → 0.01   | Haute précision        |
+### 3. Modèles Multi-Attributs (CFG)
 
-### CryptoPunks
+Utilisation du **Classifier-Free Guidance** pour combiner plusieurs attributs.
 
-| Config              | T (steps) | Epochs | LR   | Beta Schedule | Description            |
-| ------------------- | --------- | ------ | ---- | ------------- | ---------------------- |
-| config1_cryptopunks | 1000      | 100    | 3e-4 | 1e-4 → 0.02   | Baseline standard DDPM |
+- **`cryptopunks_classes_fast`** : Modèle avancé prenant en charge :
+  - **Type** : Male, Female, Zombie, Ape, Alien.
+  - **Accessoires** : 87 attributs (Lunettes, Chapeaux, Barbe...).
+  - Permet de générer un avatar précis selon des critères choisis.
 
-## 🏗️ Architecture
+## 📈 Résultats
 
-### SimpleUNet (MNIST)
+L'évolution de l'apprentissage est visible via les logs Tensorboard (`runs/`).
 
-- Architecture légère pour images 16x16 en niveaux de gris
-- Encodeur-décodeur avec skip connections
-- Time embedding simple
+![Loss Curves](imgs/losses.png)
 
-### UNet (CryptoPunks)
-
-- Architecture complète avec self-attention
-- Encodeur-décodeur avec skip connections
-- Time embedding positionnel
-- Modules d'attention multi-têtes
-
-## 📊 Monitoring
-
-L'entraînement est monitoré avec TensorBoard :
-
-```bash
-tensorboard --logdir runs/
-```
-
-Métriques suivies :
-
-- MSE Loss
-- Gradient Norm
-- Learning Rate
-- Images générées à chaque époque
-
-## 📝 Notes
-
-### Paramètres importants
-
-- **T (noise_steps)** : Nombre de pas de diffusion. Plus élevé = meilleure qualité mais plus lent
-- **Beta schedule** : Contrôle la vitesse d'ajout de bruit (beta_start → beta_end)
-- **Batch size** : 128 pour MNIST, 64 pour CryptoPunks (ajuster selon la VRAM)
-- **Image size** : 16x16 pour MNIST, 32x32 pour CryptoPunks
-
-### Résultats attendus
-
-- **MNIST** : Génération de chiffres réalistes après ~50 époques
-- **CryptoPunks** : Génération de portraits pixelisés après ~100 époques
-
-## 🔧 Personnalisation
-
-Pour créer votre propre configuration, éditez `config.py` :
-
-```python
-custom_config = {
-    "dataset_name": "MNIST",
-    "epochs": 100,
-    "lr": 3e-4,
-    "T": 500,
-    "batch_size": 128,
-    "beta_start": 1e-4,
-    "beta_end": 0.02,
-}
-```
-
-## 📚 Références
-
-- [Denoising Diffusion Probabilistic Models (DDPM)](https://arxiv.org/abs/2006.11239)
-- [Improved Denoising Diffusion Probabilistic Models](https://arxiv.org/abs/2102.09672)
-
-## 📄 Licence
-
-Voir le fichier [LICENSE](LICENSE) pour plus de détails.
+Le modèle final permet une génération contrôlée et cohérente grâce au guidage CFG, comme visible sur l'interface Streamlit.
