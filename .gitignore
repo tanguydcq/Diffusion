@@ -188,3 +188,5 @@ data/
 models/
 results/
 runs/
+
+*.zip
