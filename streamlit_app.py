@@ -31,7 +31,7 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 @st.cache_resource
-def load_model_and_metadata(config_name="cryptopunks_classes_fast"):
+def load_model_and_metadata(config_name="cryptopunks_classes"):
     """Load the trained model and metadata"""
     # Get configuration
     config = get_config_by_name(config_name)

@@ -89,7 +89,7 @@ class Diffusion:
         return x
 
     def sample_cfg(self, model, n, guidance_scale=3.0, save_gif=False, 
-                   labels=None, type_idx=None, accessory_vector=None):
+                   labels=None, type_idx=None, accessory_vector=None, concept_vector=None):
         """
         Sample n images from the model using Classifier-Free Guidance (CFG).
         
@@ -104,6 +104,7 @@ class Diffusion:
             labels: Class labels for simple class conditioning (MNIST)
             type_idx: Type indices for multi-attribute conditioning (CryptoPunks)
             accessory_vector: Accessory vectors for multi-attribute conditioning (CryptoPunks)
+            concept_vector: Optional concept vector for steering generation
         """
         logging.info(f"Sampling {n} new images with CFG (guidance_scale={guidance_scale})....")
         model.eval()
@@ -121,7 +122,7 @@ class Diffusion:
                 # === CONDITIONAL PREDICTION ===
                 if type_idx is not None and accessory_vector is not None and hasattr(model, 'attr_embedding') and model.attr_embedding is not None:
                     # Multi-attribute conditioning (CryptoPunks)
-                    noise_cond = model(x, t, type_idx=type_idx, accessory_vector=accessory_vector)
+                    noise_cond = model(x, t, type_idx=type_idx, accessory_vector=accessory_vector, concept_vector=concept_vector)
                 elif labels is not None and hasattr(model, 'num_classes') and model.num_classes is not None:
                     # Simple class conditioning (MNIST)
                     noise_cond = model(x, t, labels)
@@ -147,7 +148,7 @@ class Diffusion:
                 # === UNCONDITIONAL PREDICTION ===
                 if hasattr(model, 'attr_embedding') and model.attr_embedding is not None:
                     # Multi-attribute model: pass None for unconditional
-                    noise_uncond = model(x, t, type_idx=None, accessory_vector=None)
+                    noise_uncond = model(x, t, type_idx=None, accessory_vector=None, concept_vector=concept_vector)
                 elif hasattr(model, 'num_classes') and model.num_classes is not None:
                     # Class-conditioned model: pass None for unconditional
                     noise_uncond = model(x, t, y=None)
