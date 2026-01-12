@@ -182,3 +182,36 @@ class Diffusion:
         if save_gif:
             return x, frames
         return x
+
+
+    def sample_with_concept(self, model, n, concept_vector=None):
+        """
+        Sample n images from the model using concept vectors.
+        
+        Args:
+            model: The diffusion model
+            n: Number of images to sample
+            concept_vector: (n, concept_dim) tensor for concept-based generation
+        """
+        logging.info(f"Sampling {n} new images with concept vectors...")
+        model.eval()
+        with torch.no_grad():
+            x = torch.randn((n, self.img_channels, self.img_size, self.img_size)).to(self.device)
+            
+            for i in tqdm(reversed(range(0, self.noise_steps)), position=0, desc="Sampling"):
+                z = torch.randn_like(x) if i > 0 else torch.zeros_like(x)
+                t = (torch.ones(n) * i).long().to(self.device)
+                
+                predicted_noise = model(x, t, concept_vector=concept_vector)
+                
+                alpha = self.alpha[t][:, None, None, None]
+                alpha_hat = self.alpha_hat[t][:, None, None, None]
+                beta = self.beta[t][:, None, None, None]
+                coef1 = 1 / torch.sqrt(alpha)
+                coef2 = beta / torch.sqrt(1 - alpha_hat)
+                sigma = torch.sqrt(beta)
+                
+                x = coef1 * (x - coef2 * predicted_noise) + sigma * z
+        
+        model.train()
+        return x

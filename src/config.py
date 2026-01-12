@@ -22,6 +22,8 @@ class Config:
         num_accessories=None,
         cfg_dropout=0.1,
         cfg_scale=3.0,
+        concept_dim=512,
+        concept_scale=1.0,
     ):
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         print(f"Using device: {self.device}")
@@ -33,6 +35,10 @@ class Config:
         # Classifier-Free Guidance parameters
         self.cfg_dropout = cfg_dropout  # Probability of dropping conditioning during training
         self.cfg_scale = cfg_scale      # Guidance scale at inference (1.0 = no guidance)
+        
+        # Concept vector parameters
+        self.concept_dim = concept_dim      # Dimension of concept vectors
+        self.concept_scale = concept_scale  # Scale factor for concept vectors
 
         if dataset_name == "MNIST":
             self.img_size = 16

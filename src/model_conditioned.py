@@ -1,10 +1,16 @@
+"""
+UNet avec conditioning sur les accessoires.
+
+Architecture:
+- Embedding learnable: accessoires (multi-hot) → concept vector
+- Injection additive au bottleneck: h' = h + α·c
+- CFG dropout pour permettre la génération guidée
+"""
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-# ============================================================
-# Basic UNet blocks
-# ============================================================
 
 class DoubleConv(nn.Module):
     def __init__(self, in_ch, out_ch, mid_ch=None, residual=False):
@@ -89,24 +95,39 @@ class SelfAttention(nn.Module):
         return x.transpose(1, 2).view(B, C, H, W)
 
 
-# ============================================================
-# UNet with Concept Vector Injection (STRICT MINIMUM)
-# ============================================================
-
-class UNet(nn.Module):
+class UNetConditioned(nn.Module):
+    """
+    UNet avec:
+    - Embedding learnable pour accessoires
+    - Injection au bottleneck
+    - CFG dropout pendant l'entraînement
+    """
     def __init__(
         self,
         c_in=3,
         c_out=3,
         time_dim=256,
+        num_accessories=87,
         concept_dim=512,
         concept_scale=1.0,
+        cfg_dropout=0.1,
     ):
         super().__init__()
         self.time_dim = time_dim
         self.concept_dim = concept_dim
         self.concept_scale = concept_scale
+        self.cfg_dropout = cfg_dropout
+        self.num_accessories = num_accessories
 
+        # ========== Accessory Embedding ==========
+        # Multi-hot [B, num_accessories] → concept vector [B, 512]
+        self.accessory_embedding = nn.Sequential(
+            nn.Linear(num_accessories, concept_dim),
+            nn.SiLU(),
+            nn.Linear(concept_dim, concept_dim),
+        )
+
+        # ========== UNet Architecture ==========
         self.inc = DoubleConv(c_in, 64)
         self.down1 = Down(64, 128, time_dim)
         self.sa1 = SelfAttention(128)
@@ -115,7 +136,7 @@ class UNet(nn.Module):
         self.down3 = Down(256, 256, time_dim)
         self.sa3 = SelfAttention(256)
 
-        # Bottleneck
+        # Bottleneck (512 channels = concept_dim)
         self.bot1 = DoubleConv(256, 512)
         self.bot2 = DoubleConv(512, 512)
         self.bot3 = DoubleConv(512, 256)
@@ -135,11 +156,34 @@ class UNet(nn.Module):
         cos = torch.cos(t * inv_freq)
         return torch.cat([sin, cos], dim=-1)
 
-    def forward(self, x, t, concept_vector=None):
+    def forward(self, x, t, accessory_labels=None, concept_vector=None):
+        """
+        Args:
+            x: noisy image [B, C, H, W]
+            t: timestep [B]
+            accessory_labels: multi-hot [B, num_accessories] (training)
+            concept_vector: direct vector [B, 512] (inference, overrides labels)
+        """
         B = x.size(0)
 
         t = t.unsqueeze(-1).float()
         t_emb = self.pos_encoding(t, self.time_dim)
+
+        # ========== Compute concept vector ==========
+        if concept_vector is not None:
+            # Direct injection (for inference or custom concepts)
+            c = concept_vector
+        elif accessory_labels is not None:
+            # Embed accessory labels
+            c = self.accessory_embedding(accessory_labels.float())
+            
+            # CFG Dropout: randomly drop conditioning during training
+            if self.training and self.cfg_dropout > 0:
+                mask = (torch.rand(B, 1, device=x.device) > self.cfg_dropout).float()
+                c = c * mask
+        else:
+            # Unconditional (c = 0)
+            c = torch.zeros(B, self.concept_dim, device=x.device)
 
         # -------- Encoder --------
         x1 = self.inc(x)
@@ -147,14 +191,12 @@ class UNet(nn.Module):
         x3 = self.sa2(self.down2(x2, t_emb))
         x4 = self.sa3(self.down3(x3, t_emb))
 
-        # -------- Bottleneck --------
+        # -------- Bottleneck with concept injection --------
         x4 = self.bot1(x4)
         x4 = self.bot2(x4)
-
-        if concept_vector is None:
-            concept_vector = torch.zeros(B, self.concept_dim, device=x.device)
-
-        x4 = x4 + self.concept_scale * concept_vector[:, :, None, None]
+        
+        # h' = h + α·c
+        x4 = x4 + self.concept_scale * c[:, :, None, None]
 
         x4 = self.bot3(x4)
 
@@ -166,12 +208,15 @@ class UNet(nn.Module):
         return self.outc(x)
 
 
-def get_model(args):
-    model = UNet(
-        c_in=args.image_channels,
-        c_out=args.image_channels,
-        time_dim=args.time_emb_dim,
-        concept_dim=args.concept_dim,
-        concept_scale=args.concept_scale,
+def get_model(num_accessories, config):
+    """Create conditioned model."""
+    model = UNetConditioned(
+        c_in=config.image_channels,
+        c_out=config.image_channels,
+        time_dim=config.time_emb_dim,
+        num_accessories=num_accessories,
+        concept_dim=config.concept_dim,
+        concept_scale=config.concept_scale,
+        cfg_dropout=config.cfg_dropout,
     )
     return model
